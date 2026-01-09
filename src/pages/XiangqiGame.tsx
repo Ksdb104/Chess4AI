@@ -211,7 +211,7 @@ export const XiangqiGame: React.FC = () => {
     <div className="flex flex-col md:flex-row gap-8 max-w-6xl mx-auto px-4">
       <div className="flex-1 flex justify-center w-full">
         <div
-          className="relative w-full max-w-[460px]"
+          className="relative w-full max-w-[85%]"
           style={{
             aspectRatio: `${BOARD_WIDTH}/${BOARD_HEIGHT}`,
             transform: playerColor === "b" ? "rotate(180deg)" : "none",
