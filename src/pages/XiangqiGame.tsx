@@ -1,7 +1,18 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useEffectEvent } from "react";
 import { Xiangqi, type PieceType } from "../lib/xiangqi";
 import { useStore } from "../store/useStore";
-import { getNextMove } from "../lib/ai";
+import {
+  analyzePosition,
+  DIFFICULTY_OPTIONS,
+  getEngineMove,
+  type EngineAnalysis,
+} from "../lib/engine";
+import {
+  formatXiangqiHistory,
+  formatXiangqiVariation,
+  ucciToChinese,
+} from "../lib/xiangqiNotation";
+import { AnalysisPanel } from "../components/AnalysisPanel";
 import { RotateCcw, ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
@@ -11,13 +22,17 @@ const BOARD_WIDTH = CELL_SIZE * 8 + BOARD_PADDING * 2;
 const BOARD_HEIGHT = CELL_SIZE * 9 + BOARD_PADDING * 2;
 
 const PIECE_CHARS: Record<string, Record<PieceType, string>> = {
-  w: { k: "帥", a: "仕", b: "相", n: "马", r: "車", c: "炮", p: "兵" },
-  b: { k: "将", a: "士", b: "象", n: "馬", r: "车", c: "砲", p: "卒" },
+  w: { k: "帥", a: "仕", b: "相", n: "马", r: "车", c: "炮", p: "兵" },
+  b: { k: "将", a: "士", b: "象", n: "馬", r: "車", c: "砲", p: "卒" },
 };
 
 export const XiangqiGame: React.FC = () => {
   const navigate = useNavigate();
-  const { apiSettings } = useStore();
+  const {
+    apiSettings,
+    engineDifficulty,
+    setEngineDifficulty,
+  } = useStore();
   const [game, setGame] = useState(new Xiangqi());
   const [boardState, setBoardState] = useState(game.board); // 触发重渲染
   const [turn, setTurn] = useState(game.turn);
@@ -32,6 +47,10 @@ export const XiangqiGame: React.FC = () => {
     to: { r: number; c: number };
   } | null>(null);
   const [isAiThinking, setIsAiThinking] = useState(false);
+  const [analysis, setAnalysis] = useState<EngineAnalysis | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState("");
+  const [aiError, setAiError] = useState("");
 
   // 强制更新包装器
   const updateGame = () => {
@@ -40,7 +59,9 @@ export const XiangqiGame: React.FC = () => {
   };
 
   const isGameOver = game.isGameOver();
-  const status = isGameOver
+  const status = aiError
+    ? "引擎暂停"
+    : isGameOver
     ? `Game Over`
     : playerColor && turn === playerColor
     ? "Your Turn"
@@ -56,6 +77,9 @@ export const XiangqiGame: React.FC = () => {
     setLastMove(null);
     setSelectedPos(null);
     setValidMoves([]);
+    setAnalysis(null);
+    setAnalysisError("");
+    setAiError("");
   };
 
   // 辅助函数: 坐标转换 (UCCI <-> 内部坐标)
@@ -68,24 +92,19 @@ export const XiangqiGame: React.FC = () => {
     return { r, c };
   };
 
-  // AI 移动效果
-  useEffect(() => {
-    if (!playerColor || isGameOver || isAiThinking) return;
+  const makeAiMove = useEffectEvent(async () => {
+    setIsAiThinking(true);
+    try {
+      const fen = game.fen();
+      const history = game.moveHistory;
 
-    if (turn !== playerColor) {
-      const makeAiMove = async () => {
-        setIsAiThinking(true);
-        try {
-          const fen = game.fen();
-          const history = game.moveHistory;
-
-          const moveStr = await getNextMove(
-            "xiangqi",
-            fen,
-            history,
-            apiSettings,
-            turn
-          );
+      const result = await getEngineMove({
+        gameType: "xiangqi",
+        fen,
+        history,
+        difficulty: engineDifficulty,
+      });
+      const moveStr = result.bestMove;
 
           // 解析移动。
           // 如果是 UCCI (如 h2e2)，解析它。
@@ -107,30 +126,35 @@ export const XiangqiGame: React.FC = () => {
               console.warn("Unknown move format:", moveStr);
               return;
             }
-          } else {
-            console.warn("Invalid move string length:", moveStr);
-            return;
-          }
+      } else {
+        console.warn("Invalid move string length:", moveStr);
+        return;
+      }
 
-          if (from && to) {
-            const success = game.move({ from, to });
-            if (success) {
-              setLastMove({ from, to });
-              updateGame();
-            } else {
-              console.warn("AI attempted illegal move:", moveStr);
-            }
-          }
-        } catch (error) {
-          console.error("AI Error", error);
-        } finally {
-          setIsAiThinking(false);
+      if (from && to) {
+        const success = game.move({ from, to });
+        if (success) {
+          setLastMove({ from, to });
+          setAnalysis(null);
+          setAnalysisError("");
+          updateGame();
+        } else {
+          throw new Error(`引擎返回了无法执行的走法: ${moveStr}`);
         }
-      };
-
-      makeAiMove();
+      }
+    } catch (error) {
+      console.error("AI Error", error);
+      setAiError(error instanceof Error ? error.message : "引擎走子失败。");
+    } finally {
+      setIsAiThinking(false);
     }
-  }, [turn, playerColor, isGameOver, apiSettings]);
+  });
+
+  // AI 移动效果
+  useEffect(() => {
+    if (!playerColor || isGameOver || isAiThinking || aiError) return;
+    if (turn !== playerColor) makeAiMove();
+  }, [turn, playerColor, isGameOver, isAiThinking, aiError]);
 
   const handleSquareClick = (r: number, c: number) => {
     if (turn !== playerColor || isAiThinking || isGameOver) return;
@@ -154,6 +178,9 @@ export const XiangqiGame: React.FC = () => {
           setLastMove({ from: selectedPos, to: { r, c } });
           setSelectedPos(null);
           setValidMoves([]);
+          setAnalysis(null);
+          setAnalysisError("");
+          setAiError("");
           updateGame();
         }
       } else {
@@ -170,13 +197,61 @@ export const XiangqiGame: React.FC = () => {
     setLastMove(null); // 清除高亮或从历史恢复 (复杂)
     setSelectedPos(null);
     setValidMoves([]);
+    setAnalysis(null);
+    setAnalysisError("");
+    setAiError("");
     updateGame();
   };
+
+  const handleAnalyze = async () => {
+    setIsAnalyzing(true);
+    setAnalysisError("");
+    try {
+      const result = await analyzePosition(
+        {
+          gameType: "xiangqi",
+          fen: game.fen(),
+          history: game.moveHistory,
+          difficulty: engineDifficulty,
+          apiSettings,
+        },
+        Boolean(apiSettings.apiKey && apiSettings.model),
+      );
+      setAnalysis(result);
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : "局面分析失败。");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const chineseMoveHistory = formatXiangqiHistory(game.history, game.moveHistory);
+  const recommendedMove =
+    analysis && /^[a-i]\d[a-i]\d$/.test(analysis.bestMove)
+      ? {
+          from: fromUCCI(analysis.bestMove.slice(0, 2)),
+          to: fromUCCI(analysis.bestMove.slice(2, 4)),
+        }
+      : null;
 
   if (!playerColor) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-6">
         <h2 className="text-2xl font-bold">选边</h2>
+        <label className="w-full max-w-xs text-left">
+          <span className="block text-sm font-medium text-gray-700 mb-1">引擎难度</span>
+          <select
+            value={engineDifficulty}
+            onChange={(event) => setEngineDifficulty(event.target.value as typeof engineDifficulty)}
+            className="w-full px-3 py-2 bg-white border rounded-md"
+          >
+            {DIFFICULTY_OPTIONS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label} · {option.detail}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="flex gap-4">
           <button
             onClick={() => startGame("w")}
@@ -209,9 +284,9 @@ export const XiangqiGame: React.FC = () => {
 
   return (
     <div className="flex flex-col md:flex-row gap-8 max-w-6xl mx-auto px-4">
-      <div className="flex-1 flex justify-center w-full">
+      <div className="w-full md:flex-1 flex items-start justify-center">
         <div
-          className="relative w-full max-w-[85%]"
+          className="relative w-full max-w-[520px]"
           style={{
             aspectRatio: `${BOARD_WIDTH}/${BOARD_HEIGHT}`,
             transform: playerColor === "b" ? "rotate(180deg)" : "none",
@@ -321,14 +396,43 @@ export const XiangqiGame: React.FC = () => {
                   y={getY(lastMove.from.r) - CELL_SIZE / 2}
                   width={CELL_SIZE}
                   height={CELL_SIZE}
-                  fill="rgba(250, 204, 21, 0.3)"
+                  rx={4}
+                  fill="rgba(245, 158, 11, 0.5)"
+                  stroke="rgba(146, 64, 14, 0.95)"
+                  strokeWidth={3}
+                  pointerEvents="none"
                 />
                 <rect
                   x={getX(lastMove.to.c) - CELL_SIZE / 2}
                   y={getY(lastMove.to.r) - CELL_SIZE / 2}
                   width={CELL_SIZE}
                   height={CELL_SIZE}
-                  fill="rgba(250, 204, 21, 0.3)"
+                  rx={4}
+                  fill="rgba(250, 204, 21, 0.72)"
+                  stroke="rgba(180, 83, 9, 1)"
+                  strokeWidth={4}
+                  pointerEvents="none"
+                />
+              </>
+            )}
+
+            {/* 引擎推荐着法 */}
+            {recommendedMove && (
+              <>
+                <line
+                  x1={getX(recommendedMove.from.c)}
+                  y1={getY(recommendedMove.from.r)}
+                  x2={getX(recommendedMove.to.c)}
+                  y2={getY(recommendedMove.to.r)}
+                  stroke="rgba(5, 150, 105, 0.9)"
+                  strokeWidth="7"
+                  strokeLinecap="round"
+                />
+                <circle
+                  cx={getX(recommendedMove.to.c)}
+                  cy={getY(recommendedMove.to.r)}
+                  r={10}
+                  fill="rgba(5, 150, 105, 0.9)"
                 />
               </>
             )}
@@ -375,7 +479,13 @@ export const XiangqiGame: React.FC = () => {
                       fontSize="24"
                       fontWeight="bold"
                       fill={piece.color === "w" ? "#CC0000" : "#000000"}
-                      style={{ fontFamily: "KaiTi, serif" }}
+                      style={{
+                        fontFamily: "KaiTi, serif",
+                        pointerEvents: "none",
+                        userSelect: "none",
+                        WebkitUserSelect: "none",
+                        WebkitTouchCallout: "none",
+                      }}
                     >
                       {PIECE_CHARS[piece.color][piece.type]}
                     </text>
@@ -405,7 +515,7 @@ export const XiangqiGame: React.FC = () => {
         </div>
       </div>
 
-      <div className="md:w-80 flex flex-col gap-4">
+      <div className="md:w-96 flex flex-col gap-4">
         <div className="bg-white p-4 rounded-lg shadow-md">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-bold text-lg">比赛状态</h3>
@@ -425,12 +535,23 @@ export const XiangqiGame: React.FC = () => {
             >
               {status}
             </div>
+            {aiError && (
+              <div className="mt-3 text-sm text-red-700 bg-red-50 p-3 rounded text-left">
+                <p>{aiError}</p>
+                <button
+                  onClick={() => setAiError("")}
+                  className="mt-2 font-medium underline"
+                >
+                  重试
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2 mb-4">
             <button
               onClick={handleUndo}
-              disabled={isGameOver || isAiThinking || game.history.length < 2}
+              disabled={isGameOver || isAiThinking || game.history.length < 1}
               className="flex items-center gap-2 px-3 py-2 bg-gray-100 rounded hover:bg-gray-200 disabled:opacity-50"
             >
               <RotateCcw size={16} /> 悔棋
@@ -438,10 +559,10 @@ export const XiangqiGame: React.FC = () => {
           </div>
 
           <div className="border-t pt-4">
-            <h4 className="font-bold mb-2">棋谱 (UCCI)</h4>
+            <h4 className="font-bold mb-2">棋谱</h4>
             <div className="h-64 overflow-y-auto text-sm font-mono bg-gray-50 p-2 rounded">
-              <div className="grid grid-cols-2 gap-x-4">
-                {game.moveHistory
+              <div className="space-y-1">
+                {chineseMoveHistory
                   .reduce<{ red: string; black: string; num: number }[]>(
                     (acc, move, i) => {
                       if (i % 2 === 0) {
@@ -458,21 +579,25 @@ export const XiangqiGame: React.FC = () => {
                     []
                   )
                   .map((row) => (
-                    <React.Fragment key={row.num}>
-                      <div className="flex pl-2">
-                        <div className="text-gray-500 text-center w-6">
-                          {row.num}.
-                        </div>
-                        <div className="flex justify-between w-full col-span-1">
-                          <span>{row.red}</span>
-                          <span>{row.black}</span>
-                        </div>
-                      </div>
-                    </React.Fragment>
+                    <div key={row.num} className="grid grid-cols-[2rem_1fr_1fr] gap-2 px-1">
+                      <span className="text-gray-500">{row.num}.</span>
+                      <span>{row.red}</span>
+                      <span>{row.black}</span>
+                    </div>
                   ))}
               </div>
             </div>
           </div>
+
+          <AnalysisPanel
+            analysis={analysis}
+            loading={isAnalyzing}
+            error={analysisError}
+            canExplain={Boolean(apiSettings.apiKey && apiSettings.model)}
+            onAnalyze={handleAnalyze}
+            formatMove={(move) => ucciToChinese(game.fen(), move)}
+            formatVariation={(variation) => formatXiangqiVariation(game.fen(), variation)}
+          />
         </div>
       </div>
     </div>

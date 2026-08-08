@@ -1,16 +1,10 @@
-import React, { useEffect } from 'react';
+import React from 'react';
 import { ApiSettingsModal } from './ApiSettingsModal';
 import { useStore } from '../store/useStore';
 import { Settings } from 'lucide-react';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { setSettingsOpen, apiSettings } = useStore();
-
-  useEffect(() => {
-    if (!apiSettings.apiKey) {
-      setSettingsOpen(true);
-    }
-  }, [apiSettings.apiKey, setSettingsOpen]);
+  const { setSettingsOpen } = useStore();
 
   return (
     <div className="min-h-screen bg-gray-50 text-gray-900 font-sans">
@@ -20,7 +14,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           <button
             onClick={() => setSettingsOpen(true)}
             className="p-2 text-gray-600 hover:text-gray-900 hover:bg-gray-100 rounded-full transition-colors"
-            title="API Settings"
+            title="讲解模型设置"
           >
             <Settings size={24} />
           </button>

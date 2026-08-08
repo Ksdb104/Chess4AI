@@ -4,7 +4,12 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite --host 0.0.0.0",
+    "dev": "concurrently -k -n web,engine \"npm:dev:web\" \"npm:dev:server\"",
+    "dev:web": "vite --host 0.0.0.0",
+    "dev:server": "node --watch server/index.mjs",
+    "server": "node server/index.mjs",
+    "start": "node server/index.mjs",
+    "engines:setup": "node scripts/setup-engines.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
@@ -30,6 +35,8 @@
     "@types/react": "^19.2.5",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.1.1",
+    "7zip-bin": "^5.2.0",
+    "concurrently": "^9.2.4",
     "eslint": "^9.39.1",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",

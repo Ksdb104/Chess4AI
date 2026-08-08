@@ -1,28 +1,47 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useEffectEvent } from "react";
 import { Chess, type Square } from "chess.js";
 import { Chessboard, type SquareHandlerArgs } from "react-chessboard";
 import { useStore } from "../store/useStore";
-import { getNextMove } from "../lib/ai";
+import {
+  analyzePosition,
+  DIFFICULTY_OPTIONS,
+  getEngineMove,
+  type EngineAnalysis,
+} from "../lib/engine";
+import { AnalysisPanel } from "../components/AnalysisPanel";
 import { RotateCcw, ArrowLeft } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 export const ChessGame: React.FC = () => {
   const navigate = useNavigate();
-  const { apiSettings } = useStore();
+  const {
+    apiSettings,
+    engineDifficulty,
+    setEngineDifficulty,
+  } = useStore();
   const [game, setGame] = useState(new Chess());
   const [moveFrom, setMoveFrom] = useState("");
   const [playerColor, setPlayerColor] = useState<"w" | "b" | null>(null);
   const [moveHistory, setMoveHistory] = useState<string[]>([]);
   const [fenHistory, setFenHistory] = useState<string[]>([]);
+  const [moveSquareHistory, setMoveSquareHistory] = useState<
+    { from: string; to: string }[]
+  >([]);
   const [isAiThinking, setIsAiThinking] = useState(false);
   const [optionSquares, setOptionSquares] = useState<
     Record<string, React.CSSProperties>
   >({});
   const [nowpiece, setNowPiece] = useState("");
+  const [analysis, setAnalysis] = useState<EngineAnalysis | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [analysisError, setAnalysisError] = useState("");
+  const [aiError, setAiError] = useState("");
 
   // 比赛状态
   const isGameOver = game.isGameOver();
-  const status = isGameOver
+  const status = aiError
+    ? "引擎暂停"
+    : isGameOver
     ? game.isCheckmate()
       ? `Checkmate! ${game.turn() === "w" ? "Black" : "White"} wins`
       : "Draw"
@@ -37,7 +56,11 @@ export const ChessGame: React.FC = () => {
     setPlayerColor(color);
     setMoveHistory([]);
     setFenHistory([]);
+    setMoveSquareHistory([]);
     setOptionSquares({});
+    setAnalysis(null);
+    setAnalysisError("");
+    setAiError("");
 
     // 如果玩家选择黑棋，AI 先手
     if (color === "b") {
@@ -45,35 +68,36 @@ export const ChessGame: React.FC = () => {
     }
   };
 
+  const makeAiMove = useEffectEvent(async () => {
+    setIsAiThinking(true);
+    try {
+      const fen = game.fen();
+      const result = await getEngineMove({
+        gameType: "chess",
+        fen,
+        history: moveHistory,
+        difficulty: engineDifficulty,
+      });
+      const move = result.bestMove;
+      const moved = safeMakeMove({
+        from: move.slice(0, 2),
+        to: move.slice(2, 4),
+        promotion: move[4] || "q",
+      });
+      if (!moved) throw new Error(`引擎返回了无法执行的走法: ${move}`);
+    } catch (error) {
+      console.error("AI failed to move", error);
+      setAiError(error instanceof Error ? error.message : "引擎走子失败。");
+    } finally {
+      setIsAiThinking(false);
+    }
+  });
+
   // AI 移动效果
   useEffect(() => {
-    if (!playerColor || isGameOver || isAiThinking) return;
-
-    if (game.turn() !== playerColor) {
-      const makeAiMove = async () => {
-        setIsAiThinking(true);
-        try {
-          const fen = game.fen();
-          const moveSan = await getNextMove(
-            "chess",
-            fen,
-            moveHistory,
-            apiSettings,
-            game.turn()
-          );
-
-          safeMakeMove(moveSan);
-        } catch (error) {
-          console.error("AI failed to move", error);
-          alert("AI failed to move. Check API settings.");
-        } finally {
-          setIsAiThinking(false);
-        }
-      };
-
-      makeAiMove();
-    }
-  }, [game, playerColor, isGameOver, apiSettings]); // 依赖游戏状态
+    if (!playerColor || isGameOver || isAiThinking || aiError) return;
+    if (game.turn() !== playerColor) makeAiMove();
+  }, [game, playerColor, isGameOver, isAiThinking, aiError]);
 
   const safeMakeMove = (
     move: string | { from: string; to: string; promotion?: string }
@@ -99,6 +123,13 @@ export const ChessGame: React.FC = () => {
         setGame(gameCopy);
         setFenHistory((h) => [...h, game.fen()]);
         setMoveHistory((h) => [...h, result.san]);
+        setMoveSquareHistory((history) => [
+          ...history,
+          { from: result.from, to: result.to },
+        ]);
+        setAnalysis(null);
+        setAnalysisError("");
+        setAiError("");
         return true;
       }
     } catch (error) {
@@ -214,30 +245,126 @@ export const ChessGame: React.FC = () => {
   }
 
   const handleUndo = () => {
-    setFenHistory((h) => h.slice(0, -1));
-    // 加载上一个状态
-    if (fenHistory.length > 0) {
-        game.load(fenHistory[fenHistory.length - 1]);
-    } else {
-        game.reset();
-    }
-    setMoveHistory((h) => h.slice(0, -1));
+    const pliesToUndo = Math.min(2, fenHistory.length);
+    const targetIndex = fenHistory.length - pliesToUndo;
+    const remainingMoveSquares = moveSquareHistory.slice(0, -pliesToUndo);
+    setGame(
+      targetIndex >= 0 && fenHistory[targetIndex]
+        ? new Chess(fenHistory[targetIndex])
+        : new Chess(),
+    );
+    setFenHistory((history) => history.slice(0, -pliesToUndo));
+    setMoveHistory((history) => history.slice(0, -pliesToUndo));
+    setMoveSquareHistory(remainingMoveSquares);
     setOptionSquares({});
+    setAnalysis(null);
+    setAnalysisError("");
+    setAiError("");
   }
 
+  const formatChessMove = (move: string) => {
+    if (!/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(move)) return move;
+    try {
+      const position = new Chess(game.fen());
+      return position.move({
+        from: move.slice(0, 2),
+        to: move.slice(2, 4),
+        promotion: move[4] || "q",
+      }).san;
+    } catch {
+      return move;
+    }
+  };
+
+  const formatChessVariation = (variation: string[]) => {
+    const position = new Chess(game.fen());
+    const moves: string[] = [];
+    for (const move of variation.slice(0, 8)) {
+      try {
+        moves.push(position.move({
+          from: move.slice(0, 2),
+          to: move.slice(2, 4),
+          promotion: move[4] || "q",
+        }).san);
+      } catch {
+        moves.push(move);
+        break;
+      }
+    }
+    return moves.join(" ");
+  };
+
+  const handleAnalyze = async () => {
+    setIsAnalyzing(true);
+    setAnalysisError("");
+    try {
+      const result = await analyzePosition(
+        {
+          gameType: "chess",
+          fen: game.fen(),
+          history: moveHistory,
+          difficulty: engineDifficulty,
+          apiSettings,
+        },
+        Boolean(apiSettings.apiKey && apiSettings.model),
+      );
+      setAnalysis(result);
+    } catch (error) {
+      setAnalysisError(error instanceof Error ? error.message : "局面分析失败。");
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
   // 设置棋盘选项
+  const lastMove = moveSquareHistory.at(-1);
+  const lastMoveSquareStyles: Record<string, React.CSSProperties> = lastMove
+    ? {
+        [lastMove.from]: {
+          background: "rgba(245, 158, 11, 0.55)",
+          boxShadow: "inset 0 0 0 4px rgba(146, 64, 14, 0.9)",
+        },
+        [lastMove.to]: {
+          background: "rgba(250, 204, 21, 0.72)",
+          boxShadow: "inset 0 0 0 4px rgba(180, 83, 9, 0.95)",
+        },
+      }
+    : {};
+
   const chessboardOptions = {
     position: game.fen(),
     onSquareClick: onSquareClick,
     boardOrientation: playerColor === "w" ? "white" : "black",
-    squareStyles: optionSquares,
-    areArrowsAllowed: true,
+    squareStyles: { ...lastMoveSquareStyles, ...optionSquares },
+    allowDrawingArrows: true,
+    arrows:
+      analysis && /^[a-h][1-8][a-h][1-8]/.test(analysis.bestMove)
+        ? [{
+            startSquare: analysis.bestMove.slice(0, 2),
+            endSquare: analysis.bestMove.slice(2, 4),
+            color: "rgba(5, 150, 105, 0.85)",
+          }]
+        : [],
   };
 
   if (!playerColor) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[50vh] space-y-6">
         <h2 className="text-2xl font-bold">选边</h2>
+        <label className="w-full max-w-xs text-left">
+          <span className="block text-sm font-medium text-gray-700 mb-1">引擎难度</span>
+          <select
+            value={engineDifficulty}
+            onChange={(event) => setEngineDifficulty(event.target.value as typeof engineDifficulty)}
+            className="w-full px-3 py-2 bg-white border rounded-md"
+          >
+            {DIFFICULTY_OPTIONS.map((option) => (
+              <option key={option.id} value={option.id}>
+                {option.label} · {option.detail}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="flex gap-4">
           <button
             onClick={() => startGame("w")}
@@ -278,7 +405,7 @@ export const ChessGame: React.FC = () => {
         </div>
       </div>
 
-      <div className="md:w-80 flex flex-col gap-4">
+      <div className="md:w-96 flex flex-col gap-4">
         <div className="bg-white p-4 rounded-lg shadow-md">
           <div className="flex justify-between items-center mb-4">
             <h3 className="font-bold text-lg">比赛状态</h3>
@@ -298,6 +425,17 @@ export const ChessGame: React.FC = () => {
             >
               {status}
             </div>
+            {aiError && (
+              <div className="mt-3 text-sm text-red-700 bg-red-50 p-3 rounded text-left">
+                <p>{aiError}</p>
+                <button
+                  onClick={() => setAiError("")}
+                  className="mt-2 font-medium underline"
+                >
+                  重试
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="flex gap-2 mb-4">
@@ -346,6 +484,16 @@ export const ChessGame: React.FC = () => {
               </div>
             </div>
           </div>
+
+          <AnalysisPanel
+            analysis={analysis}
+            loading={isAnalyzing}
+            error={analysisError}
+            canExplain={Boolean(apiSettings.apiKey && apiSettings.model)}
+            onAnalyze={handleAnalyze}
+            formatMove={formatChessMove}
+            formatVariation={formatChessVariation}
+          />
         </div>
       </div>
     </div>

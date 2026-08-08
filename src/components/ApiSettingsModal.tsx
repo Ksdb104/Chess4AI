@@ -45,10 +45,6 @@ export const ApiSettingsModal: React.FC = () => {
   };
 
   const handleSave = () => {
-    if (!formData.apiKey) {
-      setError('API Key必填');
-      return;
-    }
     setApiSettings(formData);
     setSettingsOpen(false);
   };
@@ -67,8 +63,12 @@ export const ApiSettingsModal: React.FC = () => {
         
         <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
           <Settings size={24} />
-          API Settings
+          讲解模型设置
         </h2>
+
+        <p className="text-sm text-gray-600 mb-4">
+          此项可选。Stockfish 与 Pikafish 独立完成对弈和分析；配置兼容 OpenAI 的模型后，可额外生成中文原因讲解。
+        </p>
 
         <div className="space-y-4">
           <div>
@@ -77,7 +77,7 @@ export const ApiSettingsModal: React.FC = () => {
               type="text"
               value={formData.baseUrl}
               onChange={(e) => setFormData({ ...formData, baseUrl: e.target.value })}
-              placeholder="https://api.openai.com/v1"
+              placeholder="https://api.openai.com/v1（可选）"
               className="w-full px-3 py-2 border rounded-md focus:ring-2 focus:ring-blue-500 focus:outline-none"
             />
           </div>

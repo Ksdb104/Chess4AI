@@ -7,9 +7,13 @@ export interface ApiSettings {
   model: string;
 }
 
+export type EngineDifficulty = 'beginner' | 'casual' | 'club' | 'expert' | 'master';
+
 interface AppState {
   apiSettings: ApiSettings;
   setApiSettings: (settings: ApiSettings) => void;
+  engineDifficulty: EngineDifficulty;
+  setEngineDifficulty: (difficulty: EngineDifficulty) => void;
   isSettingsOpen: boolean;
   setSettingsOpen: (isOpen: boolean) => void;
 }
@@ -23,12 +27,17 @@ export const useStore = create<AppState>()(
         model: '',
       },
       setApiSettings: (settings) => set({ apiSettings: settings }),
+      engineDifficulty: 'club',
+      setEngineDifficulty: (engineDifficulty) => set({ engineDifficulty }),
       isSettingsOpen: false,
       setSettingsOpen: (isOpen) => set({ isSettingsOpen: isOpen }),
     }),
     {
       name: 'chess-app-storage',
-      partialize: (state) => ({ apiSettings: state.apiSettings }), // 仅持久化设置
+      partialize: (state) => ({
+        apiSettings: state.apiSettings,
+        engineDifficulty: state.engineDifficulty,
+      }),
     }
   )
 );

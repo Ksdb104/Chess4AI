@@ -1,0 +1,8 @@
+.engine-downloads
+.git
+.github
+dist
+engines
+node_modules
+*.log
+npm-debug.log*

@@ -120,7 +120,9 @@ export class Xiangqi {
             this.board[r][c] = piece;
             this.board[options.row][options.col] = null;
             
-            const isIllegal = this.generalsFaceEachOther(this.board);
+            const isIllegal =
+              this.generalsFaceEachOther(this.board) ||
+              this.isKingInCheck(piece.color);
             
             // 撤销移动
             this.board[options.row][options.col] = piece;
@@ -281,6 +283,17 @@ export class Xiangqi {
       }
     }
     
+    if (!options) {
+      for (let row = 0; row < 10; row++) {
+        for (let col = 0; col < 9; col++) {
+          const piece = this.get(row, col);
+          if (piece?.color === this.turn) {
+            moves.push(...this.moves({ row, col }));
+          }
+        }
+      }
+    }
+
     return moves;
   }
 
@@ -329,7 +342,90 @@ export class Xiangqi {
               }
           }
       }
-      return !redKing || !blackKing;
+      return !redKing || !blackKing || this.moves().length === 0;
+  }
+
+  isKingInCheck(color: Color): boolean {
+    for (let row = 0; row < 10; row++) {
+      for (let col = 0; col < 9; col++) {
+        const piece = this.get(row, col);
+        if (piece?.type === 'k' && piece.color === color) {
+          return this.isSquareAttacked(row, col, color === 'w' ? 'b' : 'w');
+        }
+      }
+    }
+    return true;
+  }
+
+  isSquareAttacked(targetRow: number, targetCol: number, byColor: Color): boolean {
+    for (let row = 0; row < 10; row++) {
+      for (let col = 0; col < 9; col++) {
+        const piece = this.get(row, col);
+        if (!piece || piece.color !== byColor) continue;
+
+        const rowDelta = targetRow - row;
+        const colDelta = targetCol - col;
+        const rowDistance = Math.abs(rowDelta);
+        const colDistance = Math.abs(colDelta);
+
+        if (piece.type === 'p') {
+          const forward = byColor === 'w' ? -1 : 1;
+          const crossedRiver = byColor === 'w' ? row <= 4 : row >= 5;
+          if (
+            (rowDelta === forward && colDelta === 0) ||
+            (crossedRiver && rowDelta === 0 && colDistance === 1)
+          ) return true;
+        }
+
+        if (piece.type === 'n' && (
+          (rowDistance === 2 && colDistance === 1) ||
+          (rowDistance === 1 && colDistance === 2)
+        )) {
+          const legRow = row + (rowDistance === 2 ? rowDelta / 2 : 0);
+          const legCol = col + (colDistance === 2 ? colDelta / 2 : 0);
+          if (!this.get(legRow, legCol)) return true;
+        }
+
+        if (piece.type === 'a' && rowDistance === 1 && colDistance === 1) {
+          return true;
+        }
+
+        if (piece.type === 'b' && rowDistance === 2 && colDistance === 2) {
+          if (!this.get(row + rowDelta / 2, col + colDelta / 2)) return true;
+        }
+
+        if (piece.type === 'k') {
+          if (rowDistance + colDistance === 1) return true;
+          if (colDelta === 0) {
+            let blocked = false;
+            const direction = rowDelta > 0 ? 1 : -1;
+            for (let checkRow = row + direction; checkRow !== targetRow; checkRow += direction) {
+              if (this.get(checkRow, col)) {
+                blocked = true;
+                break;
+              }
+            }
+            if (!blocked) return true;
+          }
+        }
+
+        if ((piece.type === 'r' || piece.type === 'c') && (rowDelta === 0 || colDelta === 0)) {
+          const rowStep = rowDelta === 0 ? 0 : rowDelta > 0 ? 1 : -1;
+          const colStep = colDelta === 0 ? 0 : colDelta > 0 ? 1 : -1;
+          let blockers = 0;
+          let checkRow = row + rowStep;
+          let checkCol = col + colStep;
+          while (checkRow !== targetRow || checkCol !== targetCol) {
+            if (this.get(checkRow, checkCol)) blockers += 1;
+            checkRow += rowStep;
+            checkCol += colStep;
+          }
+          if (piece.type === 'r' && blockers === 0) return true;
+          if (piece.type === 'c' && blockers === 1) return true;
+        }
+      }
+    }
+    return false;
   }
 
   // 检查将帅是否直接对脸
