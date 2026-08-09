@@ -27,7 +27,7 @@ Chess4AI/
 │   ├── explain.mjs             # 调用可选大模型生成局面中文讲解
 │   └── index.mjs               # HTTP API、静态文件与 SPA 路由服务
 ├── public/
-│   └── vite.svg                # Vite 模板资源，当前主流程未引用
+│   └── favicon.svg             # 浏览器标签页棋类主题图标
 ├── src/
 │   ├── main.tsx                # React 应用挂载入口
 │   ├── App.tsx                 # 页面路由定义
