@@ -47,6 +47,8 @@ type EngineRequest = {
   apiSettings?: ApiSettings;
 };
 
+const engineApiBase = `${import.meta.env.BASE_URL}api/engine`;
+
 async function requestEngine(endpoint: string, body: object): Promise<EngineAnalysis> {
   const response = await fetch(endpoint, {
     method: "POST",
@@ -62,11 +64,11 @@ async function requestEngine(endpoint: string, body: object): Promise<EngineAnal
 }
 
 export function getEngineMove(request: EngineRequest) {
-  return requestEngine("/api/engine/move", request);
+  return requestEngine(`${engineApiBase}/move`, request);
 }
 
 export function analyzePosition(request: EngineRequest, explain: boolean) {
-  return requestEngine("/api/engine/analyze", {
+  return requestEngine(`${engineApiBase}/analyze`, {
     ...request,
     explain,
     multiPv: 3,

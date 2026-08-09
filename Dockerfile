@@ -1,5 +1,8 @@
 FROM node:20-bookworm-slim AS builder
 
+ARG VITE_BASE_PATH=/
+ENV VITE_BASE_PATH=$VITE_BASE_PATH
+
 WORKDIR /app
 
 RUN apt-get update \

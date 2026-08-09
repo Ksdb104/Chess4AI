@@ -180,6 +180,25 @@ ports:
 	- "127.0.0.1:8787:8787"
 ```
 
+如果需要通过子路径访问,例如通过 `https://chess.example.com/chess4ai/` 子路径访问，前端也必须使用相同基路径构建。当前 `compose.yaml` 默认传入 `/chess4ai/`，Caddy 则应使用 `handle_path` 去掉前缀后再转发：
+
+```caddyfile
+redir /chess4ai /chess4ai/ permanent
+
+handle_path /chess4ai/* {
+    reverse_proxy 127.0.0.1:8787
+}
+```
+
+基路径会在 Vite 构建阶段写入 HTML、路由和 API 地址，修改后必须无缓存重建：
+
+```bash
+docker compose build --no-cache chess4ai
+docker compose up -d --force-recreate
+```
+
+如需改成其他路径，可在 `.env` 中设置，例如 `VITE_BASE_PATH=/board/`，并同步修改 Caddy 的 `redir` 与 `handle_path`。
+
 安装配置并启动：
 
 ```bash

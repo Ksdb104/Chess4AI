@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        VITE_BASE_PATH: ${VITE_BASE_PATH:-/chess4ai/}
     image: chess4ai:latest
     container_name: chess4ai
     restart: unless-stopped
